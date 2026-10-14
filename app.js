@@ -7,6 +7,7 @@ import {
 } from "./src/focusSignals.js";
 import { createFocusState, stepFocusState } from "./src/focusStateMachine.js";
 import { createEyeBreak, stepEyeBreak } from "./src/eyeBreak.js";
+import { coverRect, statusLine } from "./src/status.js";
 import { createMetricSmoother, median, stepMetricSmoother } from "./src/smoothing.js";
 
 const CALIBRATION_BASE_MS = 5000;
@@ -17,6 +18,7 @@ const LOG_INTERVAL_MS = 1400;
 const elements = {
   video: document.getElementById("cameraFeed"),
   canvas: document.getElementById("outputCanvas"),
+  statusText: document.getElementById("statusText"),
 };
 
 const context = elements.canvas.getContext("2d", { alpha: false, desynchronized: true });
@@ -80,9 +82,64 @@ function drawMirroredVideoFrame() {
     return;
   }
 
+  const crop = coverRect(elements.video.videoWidth, elements.video.videoHeight, window.innerWidth, window.innerHeight);
   context.save();
   context.scale(-1, 1);
-  context.drawImage(elements.video, -window.innerWidth, 0, window.innerWidth, window.innerHeight);
+  context.drawImage(
+    elements.video,
+    crop.sx,
+    crop.sy,
+    crop.sw,
+    crop.sh,
+    -window.innerWidth,
+    0,
+    window.innerWidth,
+    window.innerHeight
+  );
+  context.restore();
+}
+
+const TONES = {
+  info: "#7dd3fc",
+  ok: "#86efac",
+  warn: "#fbbf24",
+  alert: "#f87171",
+  calm: "#c4b5fd",
+};
+
+// A pill in the top left with the current state, and a bar that fills as
+// drifting builds up towards the redirect.
+function drawStatus() {
+  const status = statusLine({ machine: state.machine, eyeBreak: state.eyeBreak });
+  const colour = TONES[status.tone] || TONES.info;
+  // Screen readers hear the state when its kind changes, not every second.
+  const spoken = status.text.replace(/\d+\s*(s|min).*$/, "").trim();
+  if (elements.statusText && elements.statusText.dataset.last !== spoken) {
+    elements.statusText.dataset.last = spoken;
+    elements.statusText.textContent = status.text;
+  }
+  context.save();
+  context.font = "600 16px system-ui, -apple-system, Segoe UI, sans-serif";
+  const width = context.measureText(status.text).width + 40;
+  const x = 16;
+  const y = 16;
+  context.fillStyle = "rgba(10, 12, 16, 0.72)";
+  context.beginPath();
+  context.roundRect(x, y, width, 40, 20);
+  context.fill();
+  context.fillStyle = colour;
+  context.beginPath();
+  context.arc(x + 18, y + 20, 5, 0, Math.PI * 2);
+  context.fill();
+  context.fillStyle = "#f8fafc";
+  context.textBaseline = "middle";
+  context.fillText(status.text, x + 30, y + 21);
+  if (status.progress > 0) {
+    context.fillStyle = "rgba(255, 255, 255, 0.18)";
+    context.fillRect(x + 20, y + 34, width - 40, 3);
+    context.fillStyle = colour;
+    context.fillRect(x + 20, y + 34, (width - 40) * status.progress, 3);
+  }
   context.restore();
 }
 
@@ -315,6 +372,7 @@ async function frameLoop(timestamp) {
   state.machine = next.state;
   updateRenderState();
 
+  drawStatus();
   void runRedirectAction(next.action);
   maybeConsoleTrace(nowMs);
 
