@@ -6,6 +6,7 @@ export const PHASES = {
   OFF_FOCUS_PENDING: "off_focus_pending",
   OFF_FOCUS_OPENED: "off_focus_opened",
   REFOCUS_PENDING: "refocus_pending",
+  PAUSED: "paused",
 };
 
 export const DEFAULT_MACHINE_CONFIG = {
@@ -109,6 +110,19 @@ export function stepFocusState(prevState, input = {}, config = DEFAULT_MACHINE_C
     state.phase = PHASES.CALIBRATING;
     state.offFocusMs = 0;
     state.refocusMs = 0;
+    return {
+      state,
+      action: null,
+    };
+  }
+
+  // Paused (an eye break): looking away is the point, so no evidence
+  // builds up, what was there fades, and an open redirect stays as it is.
+  if (input.paused) {
+    state.lastReason = "paused";
+    state.offFocusMs = Math.max(0, state.offFocusMs - dtMs * resolvedConfig.evidenceDecayMultiplier);
+    state.refocusMs = 0;
+    if (!state.redirectOpen) state.phase = PHASES.PAUSED;
     return {
       state,
       action: null,

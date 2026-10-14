@@ -6,6 +6,7 @@ import {
   computeTorsoMetrics,
 } from "./src/focusSignals.js";
 import { createFocusState, stepFocusState } from "./src/focusStateMachine.js";
+import { createEyeBreak, stepEyeBreak } from "./src/eyeBreak.js";
 import { createMetricSmoother, median, stepMetricSmoother } from "./src/smoothing.js";
 
 const CALIBRATION_BASE_MS = 5000;
@@ -42,6 +43,8 @@ const state = {
     },
   },
   machine: createFocusState(),
+  eyeBreak: createEyeBreak(),
+  breakRequested: false,
   renderState: createFocusState(),
   signalOutput: {
     facePresent: false,
@@ -293,11 +296,21 @@ async function frameLoop(timestamp) {
     confidence: signals.confidence,
   };
 
+  const focusedNow =
+    state.machine.calibration.complete && state.machine.phase === "focused" && !state.machine.redirectOpen;
+  const breakStep = stepEyeBreak(state.eyeBreak, { dtMs, focused: focusedNow, request: state.breakRequested });
+  state.breakRequested = false;
+  state.eyeBreak = breakStep.state;
+  if (breakStep.event) {
+    console.info(`[FocusGuard] ${breakStep.event}`);
+  }
+
   const next = stepFocusState(state.machine, {
     dtMs,
     nowMs,
     signals: state.signalOutput,
     calibration: calibrationSnapshot(nowMs),
+    paused: state.eyeBreak.phase === "break",
   });
   state.machine = next.state;
   updateRenderState();
@@ -396,6 +409,12 @@ async function boot() {
 }
 
 window.addEventListener("resize", canvasSizeSync);
+// B starts a 20 second eye break early.
+window.addEventListener("keydown", (event) => {
+  if (event.key === "b" || event.key === "B") {
+    state.breakRequested = true;
+  }
+});
 window.addEventListener("beforeunload", stopEverything);
 
 boot();
