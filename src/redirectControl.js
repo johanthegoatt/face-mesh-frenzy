@@ -1,4 +1,8 @@
-import path from "node:path";
+import nodePath from "node:path";
+
+// These are Windows install locations, so build them with Windows rules even
+// when the code (or its tests) runs somewhere else.
+const path = nodePath.win32;
 import fs from "node:fs";
 import { spawn as nodeSpawn } from "node:child_process";
 
@@ -107,7 +111,7 @@ export function createRedirectController({
   redirectUrl = REDIRECT_URL,
 } = {}) {
   const runTaskkill = createTaskkillRunner(spawnTaskkill);
-  const userDataDir = path.join(appDataPath, "focusguard-browser-profile");
+  const userDataDir = nodePath.join(appDataPath, "focusguard-browser-profile");
 
   const state = {
     child: null,
