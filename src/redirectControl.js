@@ -43,7 +43,40 @@ function edgeCandidate(env = process.env) {
   );
 }
 
-export function resolveBrowserExecutable({ env = process.env, existsSync = fs.existsSync } = {}) {
+const MAC_APPS = [
+  ["chrome", "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"],
+  ["edge", "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge"],
+  ["chromium", "/Applications/Chromium.app/Contents/MacOS/Chromium"],
+];
+
+const LINUX_BINARIES = [
+  ["chrome", "google-chrome"],
+  ["chrome", "google-chrome-stable"],
+  ["chromium", "chromium"],
+  ["chromium", "chromium-browser"],
+  ["edge", "microsoft-edge"],
+];
+
+function resolveUnixBrowser(platform, env, existsSync) {
+  if (platform === "darwin") {
+    const found = MAC_APPS.find(([, file]) => existsSync(file));
+    return found ? { browser: found[0], executablePath: found[1] } : null;
+  }
+  const dirs = String(env.PATH || "").split(nodePath.posix.delimiter).filter(Boolean);
+  for (const [browser, name] of LINUX_BINARIES) {
+    for (const dir of dirs) {
+      const candidate = nodePath.posix.join(dir, name);
+      if (existsSync(candidate)) return { browser, executablePath: candidate };
+    }
+  }
+  return null;
+}
+
+export function resolveBrowserExecutable({ env = process.env, existsSync = fs.existsSync, platform = process.platform } = {}) {
+  if (platform !== "win32") {
+    return resolveUnixBrowser(platform, env, existsSync);
+  }
+
   const chromePaths = chromeCandidates(env);
   for (const candidate of chromePaths) {
     if (existsSync(candidate)) {
@@ -101,16 +134,28 @@ function createTaskkillRunner(spawnTaskkill = nodeSpawn) {
   };
 }
 
+// Off Windows there is no taskkill; a SIGTERM lets the browser close itself.
+function defaultKill(pid) {
+  try {
+    process.kill(pid, "SIGTERM");
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function createRedirectController({
   env = process.env,
   existsSync = fs.existsSync,
+  platform = process.platform,
   spawnProcess = nodeSpawn,
   spawnTaskkill = nodeSpawn,
+  killProcess = defaultKill,
   appDataPath = process.cwd(),
   openExternal = async () => {},
   redirectUrl = REDIRECT_URL,
 } = {}) {
-  const runTaskkill = createTaskkillRunner(spawnTaskkill);
+  const runTaskkill = platform === "win32" ? createTaskkillRunner(spawnTaskkill) : async (pid) => killProcess(pid);
   const userDataDir = nodePath.join(appDataPath, "focusguard-browser-profile");
 
   const state = {
@@ -147,7 +192,7 @@ export function createRedirectController({
       };
     }
 
-    const resolved = resolveBrowserExecutable({ env, existsSync });
+    const resolved = resolveBrowserExecutable({ env, existsSync, platform });
     if (!resolved?.executablePath) {
       await openExternal(redirectUrl);
       return {

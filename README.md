@@ -18,7 +18,7 @@ npm install
 npm start
 ```
 
-Windows only for now: the redirect opens in Chrome or Edge as an app window and is closed with `taskkill`.
+Windows, macOS and Linux. The redirect opens in Chrome, Edge or Chromium as an app window; on Windows it is closed with `taskkill`, elsewhere with a SIGTERM. Without one of those browsers it falls back to your default browser.
 
 ## Test
 

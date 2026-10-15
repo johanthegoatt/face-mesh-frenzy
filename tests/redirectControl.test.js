@@ -13,6 +13,7 @@ function makeChild(pid) {
 test("openRedirect is idempotent while tracked browser process is open", async () => {
   const spawnCalls = [];
   const controller = createRedirectController({
+    platform: "win32",
     appDataPath: "C:\\appData",
     env: {
       LOCALAPPDATA: "C:\\Temp\\AppData\\Local",
@@ -45,6 +46,7 @@ test("openRedirect is idempotent while tracked browser process is open", async (
 test("closeRedirect only targets tracked pid and is safe when already closed", async () => {
   const killCalls = [];
   const controller = createRedirectController({
+    platform: "win32",
     appDataPath: "C:\\appData",
     env: {
       LOCALAPPDATA: "C:\\Temp\\AppData\\Local",
@@ -79,6 +81,7 @@ test("path resolution prefers LOCALAPPDATA chrome path first", () => {
   };
 
   const found = resolveBrowserExecutable({
+    platform: "win32",
     env,
     existsSync: (filePath) =>
       filePath === "C:\\L\\Google\\Chrome\\Application\\chrome.exe" ||
@@ -97,10 +100,53 @@ test("edge fallback is used when chrome is not installed", () => {
   };
 
   const found = resolveBrowserExecutable({
+    platform: "win32",
     env,
     existsSync: (filePath) => filePath === "C:\\PF86\\Microsoft\\Edge\\Application\\msedge.exe",
   });
 
   assert.equal(found.browser, "edge");
   assert.equal(found.executablePath, "C:\\PF86\\Microsoft\\Edge\\Application\\msedge.exe");
+});
+
+test("linux finds a chromium-family browser on PATH", () => {
+  const found = resolveBrowserExecutable({
+    platform: "linux",
+    env: { PATH: "/usr/local/bin:/usr/bin" },
+    existsSync: (file) => file === "/usr/bin/chromium",
+  });
+  assert.deepEqual(found, { browser: "chromium", executablePath: "/usr/bin/chromium" });
+});
+
+test("macOS prefers Chrome's app bundle", () => {
+  const found = resolveBrowserExecutable({
+    platform: "darwin",
+    env: {},
+    existsSync: (file) => file.startsWith("/Applications/"),
+  });
+  assert.equal(found.browser, "chrome");
+});
+
+test("off Windows the redirect is closed with a signal, not taskkill", async () => {
+  const killed = [];
+  let taskkillUsed = false;
+  const controller = createRedirectController({
+    platform: "linux",
+    env: { PATH: "/usr/bin" },
+    existsSync: (file) => file === "/usr/bin/google-chrome",
+    spawnProcess: () => makeChild(4242),
+    spawnTaskkill: () => {
+      taskkillUsed = true;
+      return makeChild(0);
+    },
+    killProcess: (pid) => {
+      killed.push(pid);
+      return true;
+    },
+  });
+  const opened = await controller.openRedirect();
+  assert.equal(opened.browser, "chrome");
+  assert.deepEqual(await controller.closeRedirect(), { closed: true });
+  assert.deepEqual(killed, [4242]);
+  assert.equal(taskkillUsed, false);
 });
